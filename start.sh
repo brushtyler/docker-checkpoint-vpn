@@ -17,7 +17,6 @@ function cleanup() {
 	echo "Stopping $CONTAINERNAME..."
 
 	docker stop "$CONTAINERNAME"
-	docker rm "$CONTAINERNAME"
 }
 
 if [ ! -e "$CONFIGENVFILE" ] ; then
@@ -36,5 +35,9 @@ trap "cleanup" EXIT
 echo "$CONTAINERNAME started..."
 echo
 
-CONTAINERID="$(docker run --name "$CONTAINERNAME" --cap-add=ALL --net=host -v /lib/modules:/lib/modules --env-file "$CONFIGENVFILE" -t -d "$IMAGENAME")"
+CONTAINERID="$(docker run --name "$CONTAINERNAME" \
+	--cap-add=NET_ADMIN --net=host \
+	-v /lib/modules:/lib/modules \
+	--env-file "$CONFIGENVFILE" \
+	--rm -t -d "$IMAGENAME")"
 docker attach "$CONTAINERID"
