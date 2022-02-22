@@ -9,7 +9,12 @@ fi
 SNX_LOGFILE=/root/snx.elg
 rm -f "$SNX_LOGFILE"
 
-trap 'echo && snx -d' exit
+# debug mode, i.e. create log file
+if [ -n "$SNX_DEBUG" ] ; then
+	SNX_OPTIONS="$SNX_OPTIONS -g"
+fi
+
+trap 'echo && echo "SNX process finished with exitcode $?" && snx -d' exit
 
 /usr/bin/expect <<EOF
 spawn snx -s "$SNX_SERVER" -u "$SNX_USER" $SNX_OPTIONS
@@ -23,15 +28,24 @@ interact
 EOF
 
 RET=$?
+SNX_PID=$(pidof snx)
 
-# print logs if any
-[ -e "$SNX_LOGFILE" ] && tail "$SNX_LOGFILE"
+if [ -e "$SNX_LOGFILE" ] ; then
+	# debug mode enabled, tail logfile
+	echo && tail -f "$SNX_LOGFILE" &
+fi
 
 if [ $RET -ne 0 ] ; then
-	# connection error, expect failed
+	# connection error, expect script failed
 	exit 1
 fi
 
+# wait few seconds and check for snx process still running
+sleep 5
+if ! pidof snx &> /dev/null ; then
+	# connection error, snx process failed after a while
+	exit 2
+fi
+
 # process running, wait until finished
-SNX_PID=$(pidof snx)
 tail -f --pid=$SNX_PID /dev/null
