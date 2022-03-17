@@ -1,8 +1,6 @@
 #!/bin/bash
 
-
 if [ -z "$SNX_SERVER" ] || [ -z "$SNX_USER" ] || [ -z "$SNX_PASS" ] || [ -z "$SNX_ROOTCA" ] ; then
-	sleep 0.5 # give time to docker attach in order to print the error message
 	echo "Provide SNX_SERVER, SNX_USER, SNX_PASS and SNX_ROOTCA using config.env env file" >&2
 	exit 1
 fi
@@ -16,21 +14,27 @@ if [ -n "$SNX_DEBUG" ] ; then
 	SNX_OPTIONS="$SNX_OPTIONS -g"
 fi
 
-trap 'echo && snx -d' exit
+trap 'echo; snx -d' exit
 
 /usr/bin/expect <<EOF
-spawn snx -s "$SNX_SERVER" -u "$SNX_USER" $SNX_OPTIONS
+spawn -ignore HUP snx -s "$SNX_SERVER" -u "$SNX_USER" $SNX_OPTIONS
+# send password
 expect "*?assword:"
-send "${SNX_PASS/$/\\\$}\r"
+send -- "${SNX_PASS/$/\\\$}\r"
 set timeout 10
+# Root CA check
 expect -re {Root CA fingerprint: ([A-Z ]+)}
 if {![string match "$SNX_ROOTCA" \$expect_out(1,string)]} {
+  # root CA match failed
   exit 10
 }
 expect "Do you accept*"
 send "y\r"
+# wait for connected
 expect "SNX - connected."
-interact
+# background snx process
+expect_background
+exit 0
 EOF
 
 RET=$?
@@ -38,7 +42,7 @@ SNX_PID=$(pidof snx)
 
 if [ -e "$SNX_LOGFILE" ] ; then
 	# debug mode enabled, tail logfile
-	echo && tail -f "$SNX_LOGFILE" &
+	echo && tail -n+1 -f "$SNX_LOGFILE" &
 fi
 
 echo
@@ -50,23 +54,11 @@ if [ $RET -eq 10 ] ; then
 elif [ $RET -ne 0 ] ; then
 	# connection error, expect script failed
 	echo "Connection error" >&2
-	exit 1
-fi
-
-# wait few seconds and check for snx process still running
-echo -n "Wait for a stable connection"
-COUNT=8
-while pidof snx &> /dev/null ; do
-	echo -n '.'
-	sleep 1
-	COUNT=$((COUNT-1))
-	[ $COUNT -eq 0 ] && break
-done
-echo
-if ! pidof snx &> /dev/null ; then
-	# connection error, snx process failed after a while
-	echo "SNX process seems stalled! Wait a minute before retrying..." >&2
 	exit 2
+elif [ -z "$SNX_PID" ] ; then
+	# process failed
+	echo "SNX process failed" >&2
+	exit 3
 fi
 
 echo "The VPN connection is stable"
